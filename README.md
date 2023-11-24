@@ -24,10 +24,10 @@ In this project `astro dev start` spins up 6 Docker containers:
 
 - The Airflow webserver, which runs the Airflow UI and can be accessed at `https://localhost:8080/`.
 - The Airflow scheduler, which is responsible for monitoring and triggering tasks.
-- The Airflow triggerer, which is an Airflow component used to run deferrable operators.
-- The Airflow metadata database, which is a Postgres database that runs on port 5432.
-- A container running a mock API that simulates a customer feedback system, accessible at `http://localhost:5000/`.
-- A local OpenSearch instance that runs on port 9200.
+- The Airflow triggerer, which is an Airflow component used to run [deferrable operators](https://docs.astronomer.io/learn/deferrable-operators).
+- The Airflow metadata database, which is a Postgres database that runs on port `5432`.
+- A Python container running a mock API that generates synthetic customer feedback data, accessible at port `5000`.
+- A local OpenSearch instance, that runs on port `9200`.
 
 ## Resources
 

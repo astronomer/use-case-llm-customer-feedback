@@ -19,6 +19,9 @@ import uuid
 import requests
 from include.classification_examples import SENTIMENT_EXAMPLES
 
+# control API input
+NUM_CUSTOMERS = 2
+
 COHERE_CONN_ID = "cohere_default"
 POSTGRES_CONN_ID = "postgres_default"
 OPENSEARCH_CONN_ID = "opensearch_default"
@@ -47,11 +50,13 @@ def analzye_customer_feedback():
     # --------------------------------------------- #
 
     @task
-    def get_customer_feedback():
-        r = requests.get("http://customer_ticket_api:5000/api/data")
+    def get_customer_feedback(num_customers: int) -> list:
+        r = requests.get(
+            f"http://customer_ticket_api:5000/api/data?num_reviews={num_customers}"
+        )
         return r.json()
 
-    all_customer_feedback = get_customer_feedback()
+    all_customer_feedback = get_customer_feedback(num_customers=NUM_CUSTOMERS)
 
     @task
     def csv_to_dict_list(customer_feedback: list):

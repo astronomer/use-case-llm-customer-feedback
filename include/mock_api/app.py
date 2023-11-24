@@ -1,8 +1,9 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import random
 from datetime import datetime
 
 app = Flask(__name__)
+
 
 def get_random_feedback():
     feedback_options = [
@@ -15,22 +16,26 @@ def get_random_feedback():
         "Excellent value for money, highly recommend it.",
         "The product did not meet my expectations, ugly UI.",
         "A game changer in the industry, very impressed with the user experience!",
-        "Quite disappointed with the overall quality of the user interface."
+        "Quite disappointed with the overall quality of the user interface.",
     ]
     return random.choice(feedback_options)
+
 
 def get_random_rating():
     return random.randint(1, 5)
 
+
 def get_random_customer_id():
     return random.randint(1000, 2000)
+
 
 def get_random_date():
     return datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-def get_customer_feedback():
+
+def get_customer_feedback(num_reviews):
     reviews = []
-    for _ in range(50):
+    for _ in range(num_reviews):
         review = {
             "customer_feedback": get_random_feedback(),
             "customer_rating": get_random_rating(),
@@ -43,10 +48,16 @@ def get_customer_feedback():
         reviews.append(review)
     return reviews
 
-@app.route('/api/data')
+
+@app.route("/api/data")
 def get_data():
-    mock_data = get_customer_feedback()
+    num_reviews = request.args.get("num_reviews", default=5, type=int)
+
+    num_reviews = max(0, min(num_reviews, 500))
+
+    mock_data = get_customer_feedback(num_reviews)
     return jsonify(mock_data)
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)

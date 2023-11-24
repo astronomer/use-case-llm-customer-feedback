@@ -27,10 +27,8 @@ from include.classification_examples import SENTIMENT_EXAMPLES
 # control API input
 NUM_CUSTOMERS = 2
 
-COHERE_CONN_ID = "cohere_default"
-POSTGRES_CONN_ID = "postgres_default"
-OPENSEARCH_CONN_ID = "opensearch_default"
-OPENSEARCH_INDEX_NAME = "customer_feedback"
+# this is the search term for which we want to find similar feedback
+TESTIMONIAL_SEARCH_TERM = "Using this product for MLOps and loving it!"
 
 # subset query parameters if you make changes here, make sure to also adjust
 # the mock API in include/mock_api/app.py
@@ -40,11 +38,13 @@ AB_TEST_GROUP = "A"
 FEEDBACK_SEARCH_TERMS = "UI OR UX OR user interface OR user experience"
 MAX_NUMBER_OF_RESULTS = 1000
 
-# this is the search term for which we want to find similar feedback
-TESTIMONIAL_SEARCH_TERM = "Using this product for MLOps and loving it!"
-
 # this is the length of the embeddings returned by Cohere
 MODEL_VECTOR_LENGTH = 768
+
+# connection ids
+COHERE_CONN_ID = "cohere_default"
+OPENSEARCH_CONN_ID = "opensearch_default"
+OPENSEARCH_INDEX_NAME = "customer_feedback"
 
 
 @dag(
@@ -56,37 +56,6 @@ def analzye_customer_feedback():
     # --------------------------------------------- #
     # Ingest customer feedback data into OpenSearch #
     # --------------------------------------------- #
-
-    @task
-    def get_customer_feedback(num_customers: int) -> list:
-        "Query the mock API for customer feedback data."
-        r = requests.get(
-            f"http://customer_ticket_api:5000/api/data?num_reviews={num_customers}"
-        )
-        return r.json()
-
-    all_customer_feedback = get_customer_feedback(num_customers=NUM_CUSTOMERS)
-
-    @task
-    def customer_feedback_to_dict_list(customer_feedback: list):
-        "Convert the customer feedback data into a list of dictionaries."
-        list_of_feedback = []
-        for customer in customer_feedback:
-            unique_line_id = uuid.uuid5(
-                name=" ".join(
-                    [str(customer["customer_id"]), str(customer["timestamp"])]
-                ),
-                namespace=uuid.NAMESPACE_DNS,
-            )
-            kwargs = {"doc_id": str(unique_line_id), "document": customer}
-
-            list_of_feedback.append(kwargs)
-
-        return list_of_feedback
-
-    list_of_document_kwargs = customer_feedback_to_dict_list(
-        customer_feedback=all_customer_feedback
-    )
 
     @task.branch
     def check_if_index_exists(index_name: str, conn_id: str) -> str:
@@ -135,6 +104,37 @@ def analzye_customer_feedback():
     )
 
     index_exists = EmptyOperator(task_id="index_exists")
+
+    @task
+    def get_customer_feedback(num_customers: int) -> list:
+        "Query the mock API for customer feedback data."
+        r = requests.get(
+            f"http://customer_ticket_api:5000/api/data?num_reviews={num_customers}"
+        )
+        return r.json()
+
+    all_customer_feedback = get_customer_feedback(num_customers=NUM_CUSTOMERS)
+
+    @task
+    def customer_feedback_to_dict_list(customer_feedback: list):
+        "Convert the customer feedback data into a list of dictionaries."
+        list_of_feedback = []
+        for customer in customer_feedback:
+            unique_line_id = uuid.uuid5(
+                name=" ".join(
+                    [str(customer["customer_id"]), str(customer["timestamp"])]
+                ),
+                namespace=uuid.NAMESPACE_DNS,
+            )
+            kwargs = {"doc_id": str(unique_line_id), "document": customer}
+
+            list_of_feedback.append(kwargs)
+
+        return list_of_feedback
+
+    list_of_document_kwargs = customer_feedback_to_dict_list(
+        customer_feedback=all_customer_feedback
+    )
 
     add_lines_as_documents = OpenSearchAddDocumentOperator.partial(
         task_id="add_lines_as_documents",
@@ -187,21 +187,23 @@ def analzye_customer_feedback():
             reviews_with_id.append(review)
         return reviews_of_interest
 
+    relevant_reviews = reformat_relevant_reviews(
+        search_results=search_for_relevant_feedback.output
+    )
+
     @task
     def get_feedback_texts(review_of_interest: dict) -> str:
         "Get the feedback text from the relevant reviews."
         feedback_text = review_of_interest["customer_feedback"]
         return feedback_text
 
-    relevant_reviews = reformat_relevant_reviews(
-        search_results=search_for_relevant_feedback.output
-    )
     feedback_texts = get_feedback_texts.expand(review_of_interest=relevant_reviews)
 
-    # ------------------------------------------- #
-    # Perform sentiment analysis on relevant      #
-    # customer feedback data using the Cohere API #
-    # ------------------------------------------- #
+    # --------------------------------------- #
+    # Perform sentiment analysis              #
+    # on relevant customer feedback           #
+    # and get embeddings using the Cohere API #                             #
+    # --------------------------------------- #
 
     @task
     def get_sentiment(input_text: str, sentiment_examples: list, conn_id: str) -> float:
@@ -226,18 +228,10 @@ def analzye_customer_feedback():
         conn_id=COHERE_CONN_ID, sentiment_examples=SENTIMENT_EXAMPLES
     ).expand(input_text=feedback_texts)
 
-    # -------------------------------------------------- #
-    # Embed relevant feedback texts using the Cohere API #
-    # -------------------------------------------------- #
-
     get_embeddings = CohereEmbeddingOperator.partial(
         task_id="get_embeddings",
         conn_id=COHERE_CONN_ID,
     ).expand(input_text=feedback_texts)
-
-    # --------------------------------------------- #
-    # Load embeddings and sentiment into OpenSearch #
-    # --------------------------------------------- #
 
     @task
     def combine_reviews_embeddings_and_sentiments(
